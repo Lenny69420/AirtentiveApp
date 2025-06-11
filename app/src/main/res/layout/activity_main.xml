@@ -44,4 +44,13 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent" />
 
+    <Button
+        android:id="@+id/button_to_bluetooth_screen"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Go to Bluetooth Screen"
+        app:layout_constraintTop_toBottomOf="@+id/line_below_nav"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"
+        android:layout_marginTop="24dp" />
 </androidx.constraintlayout.widget.ConstraintLayout>
