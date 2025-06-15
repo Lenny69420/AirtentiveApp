@@ -16,6 +16,7 @@ import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.widget.Toast;
@@ -32,6 +33,7 @@ import com.example.airtentiveapp.databinding.BluetoothBinding;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @SuppressLint("SetTextI18n")
 public class BluetoothActivity extends AppCompatActivity {
@@ -63,7 +65,7 @@ public class BluetoothActivity extends AppCompatActivity {
                     if (ContextCompat.checkSelfPermission(BluetoothActivity.this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
                             || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
 
-                        String deviceName = device.getName();
+                        String deviceName = getDeviceNameSafe(device);
                         String deviceAddress = device.getAddress();
 
                         // Avoid duplicates by address
@@ -75,7 +77,7 @@ public class BluetoothActivity extends AppCompatActivity {
                             }
                         }
 
-                        if (!alreadyFound) {
+                        if (!alreadyFound && deviceName.equals("DustSensor")) {
                             devices.add(device);
                             Log.i(TAG, "Found device: " + deviceName + " - " + deviceAddress);
                             // Notify adapter of data change to refresh RecyclerView
@@ -155,28 +157,18 @@ public class BluetoothActivity extends AppCompatActivity {
 
     private void onDeviceClicked(BluetoothDevice device) {
         Toast.makeText(this, "Clicked: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-            binding.textViewStatus.setText("Status: Scan permission missing");
-            Toast.makeText(this, "BLUETOOTH_SCAN permission needed to scan.", Toast.LENGTH_LONG).show();
-            // Optionally, re-trigger permission request
-            return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                binding.textViewStatus.setText("Status: Permission missing");
+                Toast.makeText(this, "BLUETOOTH_SCAN permission needed to cancel discovery.", Toast.LENGTH_LONG).show();
+                // Optionally, re-trigger permission request
+                return;
+            }
         }
+
         // Cancel before connecting
         if (bluetoothAdapter.isDiscovering()) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED) {
-                    bluetoothAdapter.cancelDiscovery();
-                } else {
-                    Log.w(TAG, "Missing BLUETOOTH_SCAN permission to cancel discovery.");
-                    // You might want to inform the user or handle this.
-                }
-            } else {
-                if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED) {
-                    bluetoothAdapter.cancelDiscovery();
-                } else {
-                    Log.w(TAG, "Missing BLUETOOTH_ADMIN permission to cancel discovery.");
-                }
-            }
+            bluetoothAdapter.cancelDiscovery();
         }
 
 
@@ -221,23 +213,53 @@ public class BluetoothActivity extends AppCompatActivity {
             }
         });
 
-        requestMultiplePermissionsLauncher = registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), permissions -> {
-            boolean allPermissionsGranted = true;
-            for (Boolean granted : permissions.values()) {
-                if (Boolean.FALSE.equals(granted)) {
-                    allPermissionsGranted = false;
-                    break;
-                }
-            }
-            if (allPermissionsGranted) {
-                Toast.makeText(BluetoothActivity.this, "Permissions Granted", Toast.LENGTH_SHORT).show();
-                checkAndEnableBluetooth();
-            } else {
-                Toast.makeText(BluetoothActivity.this, "Some permissions were denied. Cannot scan.", Toast.LENGTH_LONG).show();
-                binding.textViewStatus.setText("Status: Permissions denied");
-            }
-        });
+//        requestMultiplePermissionsLauncher = registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), permissions -> {
+//            boolean allPermissionsGranted = true;
+//            for (Boolean granted : permissions.values()) {
+//                if (Boolean.FALSE.equals(granted)) {
+//                    allPermissionsGranted = false;
+//                    break;
+//                }
+//            }
+//            if (allPermissionsGranted) {
+//                Toast.makeText(BluetoothActivity.this, "Permissions Granted", Toast.LENGTH_SHORT).show();
+//                checkAndEnableBluetooth();
+//            } else {
+//                Toast.makeText(BluetoothActivity.this, "Some permissions were denied. Cannot scan.", Toast.LENGTH_LONG).show();
+//                binding.textViewStatus.setText("Status: Permissions denied");
+//            }
+//        });
+
+        try {
+            requestMultiplePermissionsLauncher = registerForActivityResult(
+                    new ActivityResultContracts.RequestMultiplePermissions(),
+                    permissions -> {
+                        List<String> deniedPermissions = new ArrayList<>();
+
+                        for (Map.Entry<String, Boolean> entry : permissions.entrySet()) {
+                            if (Boolean.FALSE.equals(entry.getValue())) {
+                                deniedPermissions.add(entry.getKey());
+                            }
+                        }
+
+                        if (!deniedPermissions.isEmpty()) {
+                            Toast.makeText(BluetoothActivity.this, "Permissions Granted", Toast.LENGTH_SHORT).show();
+                            checkAndEnableBluetooth();
+                        } else {
+                            String deniedList = TextUtils.join(", ", deniedPermissions);
+                            String message = "Permissions denied: " + deniedList;
+                            Log.e(TAG, "Permission denied: " + deniedList);
+                            Toast.makeText(BluetoothActivity.this, message, Toast.LENGTH_LONG).show();
+                            binding.textViewStatus.setText("Status: " + message);
+                        }
+                    }
+            );
+        } catch (Exception e) {
+            Log.e(TAG, "Error registering ActivityResultLauncher: " + e.getMessage());
+        }
+
     }
+
 
     private void checkPermissionsAndInitiateScan() {
         List<String> requiredPermissions = new ArrayList<>();
@@ -332,16 +354,6 @@ public class BluetoothActivity extends AppCompatActivity {
         } else {
             binding.textViewStatus.setText("Status: Failed to start scan");
             Log.e(TAG, "Failed to start discovery. Check permissions and BT state carefully.");
-            // Re-check permissions and adapter state here. Sometimes happens if not all conditions are met.
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                Log.e(TAG, "BLUETOOTH_SCAN permission is missing.");
-            }
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "ACCESS_FINE_LOCATION permission is missing.");
-            }
-            if (!bluetoothAdapter.isEnabled()) {
-                Log.e(TAG, "Bluetooth Adapter is not enabled.");
-            }
         }
     }
 
