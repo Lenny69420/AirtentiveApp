@@ -2,5 +2,6 @@
     <string name="app_name">AirtentiveApp</string>
     <string name="title_home">Home</string>
     <string name="title_dashboard">Devices</string>
+    <string name="title_bluetooth">Devices</string>
     <string name="title_notifications">Notifications</string>
 </resources>
