@@ -1,4 +1,4 @@
-package com.example.airtentiveapp.bluetooth;
+package com.example.airtentiveapp.ui.bluetooth;
 import android.Manifest;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;

@@ -1,121 +1,280 @@
 package com.example.airtentiveapp.ui.bluetooth;
 
 import android.Manifest;
+import android.annotation.SuppressLint;
+import android.app.Activity;
+import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothManager;
+import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.pm.PackageManager;
 import android.location.LocationManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
+import android.text.TextUtils;
+import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
-import androidx.appcompat.app.AlertDialog;
 import androidx.core.content.ContextCompat;
 import androidx.core.location.LocationManagerCompat;
 import androidx.fragment.app.Fragment;
-import androidx.lifecycle.ViewModelProvider;
+import androidx.recyclerview.widget.LinearLayoutManager;
 
-import com.example.airtentiveapp.R;
 import com.example.airtentiveapp.databinding.FragmentBluetoothBinding;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
+@SuppressLint("SetTextI18n")
 public class BluetoothFragment extends Fragment {
-
+    private static final String TAG = "BluetoothActivity";
     private FragmentBluetoothBinding binding;
     private BluetoothAdapter bluetoothAdapter;
     private ActivityResultLauncher<Intent> requestBluetoothEnableLauncher;
     private ActivityResultLauncher<String[]> requestMultiplePermissionsLauncher;
-    private TextView statusTextView;
+    private final List<BluetoothDevice> devices = new ArrayList<>();
+    private BluetoothDeviceAdapter deviceAdapter;
+    private BluetoothClient bluetoothClient;
 
-    public View onCreateView(@NonNull LayoutInflater inflater,
-                             ViewGroup container, Bundle savedInstanceState) {
-        BluetoothViewModel bluetoothViewModel =
-                new ViewModelProvider(this).get(BluetoothViewModel.class);
+    private final BroadcastReceiver discoveryReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
 
-        binding = FragmentBluetoothBinding.inflate(inflater, container, false);
-        View root = binding.getRoot();
+            Log.i(TAG, "Receiver triggered with action: " + action);
 
-        // Initialize Bluetooth adapter
-        BluetoothManager bluetoothManager = (BluetoothManager) requireActivity().getSystemService(Context.BLUETOOTH_SERVICE);
+            if (BluetoothDevice.ACTION_FOUND.equals(action)) {
+                BluetoothDevice device = null;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE, BluetoothDevice.class);
+                } else {
+                    device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                }
+
+                if (device != null) {
+                    if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+                            || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+
+                        String deviceName = getDeviceNameSafe(device);
+                        String deviceAddress = device.getAddress();
+
+                        // Avoid duplicates by address
+                        boolean alreadyFound = false;
+                        for (BluetoothDevice d : devices) {
+                            if (d.getAddress().equals(deviceAddress)) {
+                                alreadyFound = true;
+                                break;
+                            }
+                        }
+
+                        if (!alreadyFound) {
+//                        if (!alreadyFound && deviceName.equals("DustSensor")) {
+                            devices.add(device);
+                            Log.i(TAG, "Found device: " + deviceName + " - " + deviceAddress);
+                            // Notify adapter of data change to refresh RecyclerView
+                            deviceAdapter.notifyDataSetChanged();
+                        }
+
+                    } else {
+                        // If permission denied, just add with address only if not already added
+                        boolean alreadyFound = false;
+                        for (BluetoothDevice d : devices) {
+                            if (d.getAddress().equals(device.getAddress())) {
+                                alreadyFound = true;
+                                break;
+                            }
+                        }
+
+                        if (!alreadyFound) {
+                            devices.add(device);
+                            Log.w(TAG, "BLUETOOTH_CONNECT permission not granted, can't get name for " + device.getAddress());
+                            deviceAdapter.notifyDataSetChanged();
+                        }
+                    }
+                }
+            } else if (BluetoothAdapter.ACTION_DISCOVERY_STARTED.equals(action)) {
+                Log.i(TAG, "Discovery Started...");
+                binding.textViewStatus.setText("Status: Scanning...");
+                binding.buttonScan.setEnabled(false);
+                devices.clear();  // Clear device list before new scan
+                deviceAdapter.notifyDataSetChanged();
+            } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
+                Log.i(TAG, "Discovery Finished.");
+                binding.textViewStatus.setText("Status: Scan finished.");
+                binding.buttonScan.setEnabled(true);
+
+                if (devices.isEmpty()) {
+                    binding.textViewStatus.append("\nNo devices found.");
+                }
+            }
+        }
+    };
+
+    @Override
+    public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle savedInstanceState) {
+        BluetoothManager bluetoothManager;
+        super.onCreate(savedInstanceState);
+        binding = FragmentBluetoothBinding.inflate(getLayoutInflater());
+
+        binding.recyclerViewDevices.setLayoutManager(new LinearLayoutManager(requireContext()));
+        // Pass the list of devices to your adapter's constructor
+        deviceAdapter = new BluetoothDeviceAdapter(devices, this::onDeviceClicked, requireContext());
+        binding.recyclerViewDevices.setAdapter(deviceAdapter);
+
+        binding.textViewReceivedData.setMovementMethod(new ScrollingMovementMethod()); // Make it scrollable
+
+        bluetoothManager = (BluetoothManager) requireContext().getSystemService(Context.BLUETOOTH_SERVICE);
         if (bluetoothManager != null) {
             bluetoothAdapter = bluetoothManager.getAdapter();
         }
 
-        // Find and set up the status TextView
-        statusTextView = root.findViewById(R.id.text_view_status);
-        if (statusTextView == null) {
-            // If the TextView isn't found, log an error
-            Toast.makeText(requireContext(), "Status TextView not found in layout", Toast.LENGTH_SHORT).show();
-        } else {
-            statusTextView.setText("Status: Not Connected");
-        }
-
-        // Initialize activity result launchers
         initializeActivityResultLaunchers();
 
-        // Set up the button click listener
         binding.buttonScan.setOnClickListener(v -> checkPermissionsAndInitiateScan());
 
-        return root;
+        // Register the BroadcastReceiver for Bluetooth discovery
+        IntentFilter filter = new IntentFilter();
+        filter.addAction(BluetoothDevice.ACTION_FOUND);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+//            ContextCompat.registerReceiver(this, discoveryReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED); // For Android 13+
+            requireContext().registerReceiver(discoveryReceiver, filter, Context.RECEIVER_EXPORTED); // For Android 13+
+        } else {
+            requireContext().registerReceiver(discoveryReceiver, filter);
+        }
+
+        return binding.getRoot();
+    }
+
+    private void onDeviceClicked(BluetoothDevice device) {
+        Toast.makeText(requireContext(), "Clicked: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                binding.textViewStatus.setText("Status: Permission missing");
+                Toast.makeText(requireContext(), "BLUETOOTH_SCAN permission needed to cancel discovery.", Toast.LENGTH_LONG).show();
+                // Optionally, re-trigger permission request
+                return;
+            }
+        }
+
+        // Cancel before connecting
+        if (bluetoothAdapter.isDiscovering()) {
+            bluetoothAdapter.cancelDiscovery();
+        }
+
+
+        // Connect to device using BluetoothClient
+        bluetoothClient = new BluetoothClient(requireContext());
+        bluetoothClient.setCallback(new BluetoothDataCallback() {
+            @Override
+            public void onDataReceived(String data) {
+                requireActivity().runOnUiThread(() -> binding.textViewReceivedData.append("\n" + data));
+            }
+
+            @Override
+            public void onConnected() {
+                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Status: Connected"));
+            }
+
+            @Override
+            public void onConnectionFailed(Exception e) {
+                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Status: Connection Failed"));
+            }
+        });
+        bluetoothClient.connectToDevice(device);
+    }
+
+    private String getDeviceNameSafe(BluetoothDevice device) {
+        if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED ||
+                Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            String name = device.getName();
+            return (name != null && !name.isEmpty()) ? name : "Unknown Device";
+        }
+        return "Name Hidden (No Permission)";
     }
 
     private void initializeActivityResultLaunchers() {
-        // Launcher for Bluetooth enable request
-        requestBluetoothEnableLauncher = registerForActivityResult(
-                new ActivityResultContracts.StartActivityForResult(),
-                result -> {
-                    if (result.getResultCode() == -1) { // RESULT_OK
-                        Toast.makeText(requireContext(), "Bluetooth enabled", Toast.LENGTH_SHORT).show();
-                        startScanningForDevices();
-                    } else {
-                        Toast.makeText(requireContext(), "Bluetooth enabling denied", Toast.LENGTH_SHORT).show();
-                        updateStatus("Status: Bluetooth not enabled");
-                    }
-                });
+        requestBluetoothEnableLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+            if (result.getResultCode() == Activity.RESULT_OK) {
+                Toast.makeText(requireContext(), "Bluetooth enabled", Toast.LENGTH_SHORT).show();
+                startScanningForDevices();
+            } else {
+                Toast.makeText(requireContext(), "Bluetooth enabling denied", Toast.LENGTH_SHORT).show();
+                binding.textViewStatus.setText("Status: Bluetooth not enabled");
+            }
+        });
 
-        // Launcher for permission requests
-        requestMultiplePermissionsLauncher = registerForActivityResult(
-                new ActivityResultContracts.RequestMultiplePermissions(),
-                permissions -> {
-                    boolean allPermissionsGranted = true;
-                    for (Boolean granted : permissions.values()) {
-                        if (Boolean.FALSE.equals(granted)) {
-                            allPermissionsGranted = false;
-                            break;
+//        requestMultiplePermissionsLauncher = registerForActivityResult(new ActivityResultContracts.RequestMultiplePermissions(), permissions -> {
+//            boolean allPermissionsGranted = true;
+//            for (Boolean granted : permissions.values()) {
+//                if (Boolean.FALSE.equals(granted)) {
+//                    allPermissionsGranted = false;
+//                    break;
+//                }
+//            }
+//            if (allPermissionsGranted) {
+//                Toast.makeText(BluetoothActivity.this, "Permissions Granted", Toast.LENGTH_SHORT).show();
+//                checkAndEnableBluetooth();
+//            } else {
+//                Toast.makeText(BluetoothActivity.this, "Some permissions were denied. Cannot scan.", Toast.LENGTH_LONG).show();
+//                binding.textViewStatus.setText("Status: Permissions denied");
+//            }
+//        });
+
+        try {
+            requestMultiplePermissionsLauncher = registerForActivityResult(
+                    new ActivityResultContracts.RequestMultiplePermissions(),
+                    permissions -> {
+                        List<String> deniedPermissions = new ArrayList<>();
+
+                        for (Map.Entry<String, Boolean> entry : permissions.entrySet()) {
+                            if (Boolean.FALSE.equals(entry.getValue())) {
+                                deniedPermissions.add(entry.getKey());
+                            }
+                        }
+
+                        if (!deniedPermissions.isEmpty()) {
+                            Toast.makeText(requireContext(), "Permissions Granted", Toast.LENGTH_SHORT).show();
+                            checkAndEnableBluetooth();
+                        } else {
+                            String deniedList = TextUtils.join(", ", deniedPermissions);
+                            String message = "Permissions denied: " + deniedList;
+                            Log.e(TAG, "Permission denied: " + deniedList);
+                            Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
+                            binding.textViewStatus.setText("Status: " + message);
                         }
                     }
-                    if (allPermissionsGranted) {
-                        Toast.makeText(requireContext(), "Permissions Granted", Toast.LENGTH_SHORT).show();
-                        checkAndEnableBluetooth();
-                    } else {
-                        Toast.makeText(requireContext(), "Some permissions were denied. Cannot scan.", Toast.LENGTH_LONG).show();
-                        updateStatus("Status: Permissions denied");
-                    }
-                });
+            );
+        } catch (Exception e) {
+            Log.e(TAG, "Error registering ActivityResultLauncher: " + e.getMessage());
+        }
+
     }
+
 
     private void checkPermissionsAndInitiateScan() {
         List<String> requiredPermissions = new ArrayList<>();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             requiredPermissions.add(Manifest.permission.BLUETOOTH_SCAN);
-            requiredPermissions.add(Manifest.permission.BLUETOOTH_CONNECT);
+            requiredPermissions.add(Manifest.permission.BLUETOOTH_CONNECT); // For device name and connection
         } else {
             requiredPermissions.add(Manifest.permission.BLUETOOTH);
             requiredPermissions.add(Manifest.permission.BLUETOOTH_ADMIN);
         }
-        requiredPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        requiredPermissions.add(Manifest.permission.ACCESS_FINE_LOCATION); // Always for classic BT discovery
 
         List<String> missingPermissions = new ArrayList<>();
         for (String permission : requiredPermissions) {
@@ -133,7 +292,7 @@ public class BluetoothFragment extends Fragment {
 
     private void checkAndEnableBluetooth() {
         if (bluetoothAdapter == null) {
-            updateStatus("Status: Bluetooth not supported");
+            binding.textViewStatus.setText("Status: Bluetooth not supported");
             Toast.makeText(requireContext(), "Device doesn't support Bluetooth", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -145,7 +304,8 @@ public class BluetoothFragment extends Fragment {
                     requestBluetoothEnableLauncher.launch(enableBtIntent);
                 } else {
                     Toast.makeText(requireContext(), "BLUETOOTH_CONNECT permission needed to enable Bluetooth", Toast.LENGTH_LONG).show();
-                    updateStatus("Status: Permission needed to enable BT");
+                    binding.textViewStatus.setText("Status: Permission needed to enable BT");
+                    // Optionally, re-trigger permission request here or guide user
                 }
             } else {
                 requestBluetoothEnableLauncher.launch(enableBtIntent);
@@ -157,9 +317,7 @@ public class BluetoothFragment extends Fragment {
 
     private void startScanningForDevices() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
-            if (statusTextView != null) {
-                statusTextView.setText("Status: Bluetooth not enabled for scan");
-            }
+            binding.textViewStatus.setText("Status: Bluetooth not enabled for scan");
             Toast.makeText(requireContext(), "Bluetooth is not enabled.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -167,27 +325,21 @@ public class BluetoothFragment extends Fragment {
         // Check for necessary scan permissions before starting discovery
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                if (statusTextView != null) {
-                    statusTextView.setText("Status: Scan permission missing");
-                }
+                binding.textViewStatus.setText("Status: Scan permission missing");
                 Toast.makeText(requireContext(), "BLUETOOTH_SCAN permission needed to scan.", Toast.LENGTH_LONG).show();
                 // Optionally, re-trigger permission request
                 return;
             }
         } else { // For older versions, BLUETOOTH_ADMIN is the primary concern for starting discovery
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_ADMIN) != PackageManager.PERMISSION_GRANTED) {
-                if (statusTextView != null) {
-                    statusTextView.setText("Status: Admin permission missing for scan");
-                }
+                binding.textViewStatus.setText("Status: Admin permission missing for scan");
                 Toast.makeText(requireContext(), "BLUETOOTH_ADMIN permission needed to scan.", Toast.LENGTH_LONG).show();
                 return;
             }
         }
         // Also ensure location permission is granted for discovery
         if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            if (statusTextView != null) {
-                statusTextView.setText("Status: Location permission missing for scan");
-            }
+            binding.textViewStatus.setText("Status: Location permission missing for scan");
             Toast.makeText(requireContext(), "Location permission needed for Bluetooth scanning.", Toast.LENGTH_LONG).show();
             // Optionally, re-trigger permission request
             return;
@@ -201,26 +353,16 @@ public class BluetoothFragment extends Fragment {
 
         boolean discoveryStarted = bluetoothAdapter.startDiscovery();
         if (discoveryStarted) {
-            if (statusTextView != null) {
-                statusTextView.setText("Status: Starting scan...");
-            }
-            Log.i("BluetoothFragment", "Attempting to start discovery...");
+            binding.textViewStatus.setText("Status: Starting scan...");
+            Log.i(TAG, "Attempting to start discovery...");
         } else {
-            if (statusTextView != null) {
-                statusTextView.setText("Status: Failed to start scan");
-            }
-            Log.e("BluetoothFragment", "Failed to start discovery. Check permissions and BT state carefully.");
-        }
-    }
-
-    private void updateStatus(String status) {
-        if (statusTextView != null) {
-            statusTextView.setText(status);
+            binding.textViewStatus.setText("Status: Failed to start scan");
+            Log.e(TAG, "Failed to start discovery. Check permissions and BT state carefully.");
         }
     }
 
     private void ensureLocationEnabled() {
-        LocationManager locationManager = (LocationManager) requireActivity().getSystemService(Context.LOCATION_SERVICE);
+        LocationManager locationManager = (LocationManager) requireContext().getSystemService(Context.LOCATION_SERVICE);
         boolean isLocationServicesEnabled = LocationManagerCompat.isLocationEnabled(locationManager);
         if (!isLocationServicesEnabled) {
             new AlertDialog.Builder(requireContext())
@@ -228,19 +370,41 @@ public class BluetoothFragment extends Fragment {
                     .setMessage("Location services are required for Bluetooth scanning. Enable now?")
                     .setCancelable(false)
                     .setPositiveButton("Yes", (dialog, which) -> {
-                        startActivity(new Intent(android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS));
+                        // Take user to Location Settings
+                        startActivity(new Intent(Settings.ACTION_LOCATION_SOURCE_SETTINGS));
                     })
                     .setNegativeButton("No", (dialog, which) -> {
                         dialog.dismiss();
-                        updateStatus("Status: Location disabled");
+                        // Optionally: update UI status
+                        binding.textViewStatus.setText("Status: Location disabled");
                     })
                     .show();
         }
     }
 
     @Override
-    public void onDestroyView() {
-        super.onDestroyView();
-        binding = null;
+    public void onDestroy() {
+        super.onDestroy();
+        // Unregister the BroadcastReceiver
+        try {
+            requireContext().unregisterReceiver(discoveryReceiver);
+        } catch (IllegalArgumentException e) {
+            Log.w(TAG, "Receiver not registered or already unregistered.", e);
+        }
+
+        // Cancel discovery if it's running
+        if (bluetoothAdapter != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_SCAN) == PackageManager.PERMISSION_GRANTED && bluetoothAdapter.isDiscovering()) {
+                    bluetoothAdapter.cancelDiscovery();
+                }
+
+            } else { // For older versions, BLUETOOTH_ADMIN is needed to cancel
+                if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_ADMIN) == PackageManager.PERMISSION_GRANTED && bluetoothAdapter.isDiscovering()) {
+                    bluetoothAdapter.cancelDiscovery();
+                }
+
+            }
+        }
     }
 }

@@ -1,9 +1,7 @@
 package com.example.airtentiveapp;
 
-import android.content.Intent;
 import android.os.Bundle;
 
-import com.example.airtentiveapp.bluetooth.BluetoothActivity;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 import androidx.appcompat.app.AppCompatActivity;

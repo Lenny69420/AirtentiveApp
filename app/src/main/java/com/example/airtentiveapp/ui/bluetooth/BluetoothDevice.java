@@ -1,4 +1,4 @@
-package com.example.airtentiveapp.bluetooth;
+package com.example.airtentiveapp.ui.bluetooth;
 
 public class BluetoothDevice {
     private String name;
