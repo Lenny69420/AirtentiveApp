@@ -29,9 +29,11 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.core.content.ContextCompat;
 import androidx.core.location.LocationManagerCompat;
 import androidx.fragment.app.Fragment;
+import androidx.lifecycle.ViewModelProvider;
 import androidx.recyclerview.widget.LinearLayoutManager;
 
 import com.example.airtentiveapp.databinding.FragmentBluetoothBinding;
+import com.example.airtentiveapp.ui.shared.SharedBluetoothViewModel;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -47,6 +49,7 @@ public class BluetoothFragment extends Fragment {
     private final List<BluetoothDevice> devices = new ArrayList<>();
     private BluetoothDeviceAdapter deviceAdapter;
     private BluetoothClient bluetoothClient;
+    private SharedBluetoothViewModel sharedBluetoothViewModel;
 
     private final BroadcastReceiver discoveryReceiver = new BroadcastReceiver() {
         @Override
@@ -80,11 +83,12 @@ public class BluetoothFragment extends Fragment {
                         }
 
                         if (!alreadyFound) {
-//                        if (!alreadyFound && deviceName.equals("DustSensor")) {
+                           if (!alreadyFound && deviceName.equals("DustSensor")) {
                             devices.add(device);
-                            Log.i(TAG, "Found device: " + deviceName + " - " + deviceAddress);
+                            Log.i(TAG, "Tìm thấy thiết bị: " + deviceName + " - " + deviceAddress);
                             // Notify adapter of data change to refresh RecyclerView
                             deviceAdapter.notifyDataSetChanged();
+                         }
                         }
 
                     } else {
@@ -106,17 +110,17 @@ public class BluetoothFragment extends Fragment {
                 }
             } else if (BluetoothAdapter.ACTION_DISCOVERY_STARTED.equals(action)) {
                 Log.i(TAG, "Discovery Started...");
-                binding.textViewStatus.setText("Status: Scanning...");
+                binding.textViewStatus.setText("Đang truy quét thiết bị ...");
                 binding.buttonScan.setEnabled(false);
                 devices.clear();  // Clear device list before new scan
                 deviceAdapter.notifyDataSetChanged();
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
                 Log.i(TAG, "Discovery Finished.");
-                binding.textViewStatus.setText("Status: Scan finished.");
+                binding.textViewStatus.setText("Truy quét hoàn tất");
                 binding.buttonScan.setEnabled(true);
 
                 if (devices.isEmpty()) {
-                    binding.textViewStatus.append("\nNo devices found.");
+                    binding.textViewStatus.append("\nKhông tìm thấy thiết bị nào.");
                 }
             }
         }
@@ -127,6 +131,9 @@ public class BluetoothFragment extends Fragment {
         BluetoothManager bluetoothManager;
         super.onCreate(savedInstanceState);
         binding = FragmentBluetoothBinding.inflate(getLayoutInflater());
+
+        // Get the shared Bluetooth ViewModel
+        sharedBluetoothViewModel = new ViewModelProvider(requireActivity()).get(SharedBluetoothViewModel.class);
 
         binding.recyclerViewDevices.setLayoutManager(new LinearLayoutManager(requireContext()));
         // Pass the list of devices to your adapter's constructor
@@ -150,7 +157,6 @@ public class BluetoothFragment extends Fragment {
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
         filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-//            ContextCompat.registerReceiver(this, discoveryReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED); // For Android 13+
             requireContext().registerReceiver(discoveryReceiver, filter, Context.RECEIVER_EXPORTED); // For Android 13+
         } else {
             requireContext().registerReceiver(discoveryReceiver, filter);
@@ -160,10 +166,10 @@ public class BluetoothFragment extends Fragment {
     }
 
     private void onDeviceClicked(BluetoothDevice device) {
-        Toast.makeText(requireContext(), "Clicked: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
+        Toast.makeText(requireContext(), "Đang kết nối với: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                binding.textViewStatus.setText("Status: Permission missing");
+                binding.textViewStatus.setText("Quyền truy cập Bluetooth bị thiếu");
                 Toast.makeText(requireContext(), "BLUETOOTH_SCAN permission needed to cancel discovery.", Toast.LENGTH_LONG).show();
                 // Optionally, re-trigger permission request
                 return;
@@ -181,17 +187,23 @@ public class BluetoothFragment extends Fragment {
         bluetoothClient.setCallback(new BluetoothDataCallback() {
             @Override
             public void onDataReceived(String data) {
-                requireActivity().runOnUiThread(() -> binding.textViewReceivedData.append("\n" + data));
+                requireActivity().runOnUiThread(() -> {
+                    // Update the shared ViewModel instead of local TextView
+                    sharedBluetoothViewModel.setBluetoothData(data);
+
+                    // Optionally keep showing data in Bluetooth fragment for debugging
+                    binding.textViewReceivedData.append("\n" + data);
+                });
             }
 
             @Override
             public void onConnected() {
-                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Status: Connected"));
+                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Kết nối thành cônng"));
             }
 
             @Override
             public void onConnectionFailed(Exception e) {
-                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Status: Connection Failed"));
+                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Kết nối thất bại, vui lòng thử lại."));
             }
         });
         bluetoothClient.connectToDevice(device);
@@ -209,11 +221,11 @@ public class BluetoothFragment extends Fragment {
     private void initializeActivityResultLaunchers() {
         requestBluetoothEnableLauncher = registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
             if (result.getResultCode() == Activity.RESULT_OK) {
-                Toast.makeText(requireContext(), "Bluetooth enabled", Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), "Bluetooth đã kích hoạt", Toast.LENGTH_SHORT).show();
                 startScanningForDevices();
             } else {
-                Toast.makeText(requireContext(), "Bluetooth enabling denied", Toast.LENGTH_SHORT).show();
-                binding.textViewStatus.setText("Status: Bluetooth not enabled");
+                Toast.makeText(requireContext(), "Bluetooth từ chối kích hoạt", Toast.LENGTH_SHORT).show();
+                binding.textViewStatus.setText("Bluetooth bị từ chối kích hoạt");
             }
         });
 
@@ -247,14 +259,14 @@ public class BluetoothFragment extends Fragment {
                         }
 
                         if (!deniedPermissions.isEmpty()) {
-                            Toast.makeText(requireContext(), "Permissions Granted", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(requireContext(), "Quyền truy cập cho phép:", Toast.LENGTH_SHORT).show();
                             checkAndEnableBluetooth();
                         } else {
                             String deniedList = TextUtils.join(", ", deniedPermissions);
-                            String message = "Permissions denied: " + deniedList;
-                            Log.e(TAG, "Permission denied: " + deniedList);
+                            String message = "Quyền truy cập từ chối: " + deniedList;
+                            Log.e(TAG, "Quyền truy cập từ chối: " + deniedList);
                             Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
-                            binding.textViewStatus.setText("Status: " + message);
+                            binding.textViewStatus.setText("Trạng thái: " + message);
                         }
                     }
             );
@@ -292,8 +304,8 @@ public class BluetoothFragment extends Fragment {
 
     private void checkAndEnableBluetooth() {
         if (bluetoothAdapter == null) {
-            binding.textViewStatus.setText("Status: Bluetooth not supported");
-            Toast.makeText(requireContext(), "Device doesn't support Bluetooth", Toast.LENGTH_SHORT).show();
+            binding.textViewStatus.setText("Thiêt bị không hỗ trợ Bluetooth.");
+            Toast.makeText(requireContext(), "Thiêt bị không hỗ trợ Bluetooth.", Toast.LENGTH_SHORT).show();
             return;
         }
 
@@ -303,8 +315,8 @@ public class BluetoothFragment extends Fragment {
                 if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED) {
                     requestBluetoothEnableLauncher.launch(enableBtIntent);
                 } else {
-                    Toast.makeText(requireContext(), "BLUETOOTH_CONNECT permission needed to enable Bluetooth", Toast.LENGTH_LONG).show();
-                    binding.textViewStatus.setText("Status: Permission needed to enable BT");
+                    Toast.makeText(requireContext(), "Quyền truy cập Bluetooth phải được cho phép", Toast.LENGTH_LONG).show();
+                    binding.textViewStatus.setText("Quyền truy cập Bluetooth phải được cho phép");
                     // Optionally, re-trigger permission request here or guide user
                 }
             } else {
@@ -317,30 +329,30 @@ public class BluetoothFragment extends Fragment {
 
     private void startScanningForDevices() {
         if (bluetoothAdapter == null || !bluetoothAdapter.isEnabled()) {
-            binding.textViewStatus.setText("Status: Bluetooth not enabled for scan");
-            Toast.makeText(requireContext(), "Bluetooth is not enabled.", Toast.LENGTH_SHORT).show();
+            binding.textViewStatus.setText("Vui lòng bật Bluetooth để quét thiết bị.");
+            Toast.makeText(requireContext(), "Bluetooth chưa được bật", Toast.LENGTH_SHORT).show();
             return;
         }
 
         // Check for necessary scan permissions before starting discovery
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                binding.textViewStatus.setText("Status: Scan permission missing");
-                Toast.makeText(requireContext(), "BLUETOOTH_SCAN permission needed to scan.", Toast.LENGTH_LONG).show();
+                binding.textViewStatus.setText("Quyền truy cập Bluetooth bị thiếu");
+                Toast.makeText(requireContext(), "Quyền truy cập Bluetooth bị thiếu.", Toast.LENGTH_LONG).show();
                 // Optionally, re-trigger permission request
                 return;
             }
         } else { // For older versions, BLUETOOTH_ADMIN is the primary concern for starting discovery
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_ADMIN) != PackageManager.PERMISSION_GRANTED) {
-                binding.textViewStatus.setText("Status: Admin permission missing for scan");
-                Toast.makeText(requireContext(), "BLUETOOTH_ADMIN permission needed to scan.", Toast.LENGTH_LONG).show();
+                binding.textViewStatus.setText("Quyền truy cập Bluetooth Admin bị thiếu");
+                Toast.makeText(requireContext(), "Quyền truy cập Bluetooth Admin bị thiếu", Toast.LENGTH_LONG).show();
                 return;
             }
         }
         // Also ensure location permission is granted for discovery
         if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            binding.textViewStatus.setText("Status: Location permission missing for scan");
-            Toast.makeText(requireContext(), "Location permission needed for Bluetooth scanning.", Toast.LENGTH_LONG).show();
+            binding.textViewStatus.setText("Quyền truy cập vị trí bị thiếu");
+            Toast.makeText(requireContext(), "Quyền truy cập vị trí bị thiếu", Toast.LENGTH_LONG).show();
             // Optionally, re-trigger permission request
             return;
         }
@@ -353,10 +365,10 @@ public class BluetoothFragment extends Fragment {
 
         boolean discoveryStarted = bluetoothAdapter.startDiscovery();
         if (discoveryStarted) {
-            binding.textViewStatus.setText("Status: Starting scan...");
+            binding.textViewStatus.setText("Đang truy quét thiết bị ...");
             Log.i(TAG, "Attempting to start discovery...");
         } else {
-            binding.textViewStatus.setText("Status: Failed to start scan");
+            binding.textViewStatus.setText("Quáy trình truy quét không thành công.");
             Log.e(TAG, "Failed to start discovery. Check permissions and BT state carefully.");
         }
     }
@@ -376,7 +388,7 @@ public class BluetoothFragment extends Fragment {
                     .setNegativeButton("No", (dialog, which) -> {
                         dialog.dismiss();
                         // Optionally: update UI status
-                        binding.textViewStatus.setText("Status: Location disabled");
+                        binding.textViewStatus.setText("Truy quét không thể thực hiện vì dịch vụ vị trí chưa được bật.");
                     })
                     .show();
         }
@@ -408,3 +420,4 @@ public class BluetoothFragment extends Fragment {
         }
     }
 }
+

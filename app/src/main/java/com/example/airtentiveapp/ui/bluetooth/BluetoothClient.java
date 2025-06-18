@@ -70,12 +70,14 @@ public class BluetoothClient {
                     callback.onConnected();  // ✅ Notify success
                 }
 
+                // Đọc dữ liệu từ Bluetooth
                 InputStream inputStream = socket.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
                 String line;
 
                 while ((line = reader.readLine()) != null) {
                     if (callback != null) {
+                        // Gọi callback đẩy data về frontend
                         callback.onDataReceived(line);
                     }
                 }
