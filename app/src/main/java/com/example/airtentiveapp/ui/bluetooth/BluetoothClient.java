@@ -1,4 +1,4 @@
-package com.example.airtentiveapp.bluetooth;
+package com.example.airtentiveapp.ui.bluetooth;
 
 import android.Manifest;
 import android.bluetooth.BluetoothDevice;
@@ -25,6 +25,7 @@ public class BluetoothClient {
     private final Context context;
     private BluetoothSocket socket;
     private BluetoothDataCallback callback;
+    private boolean isConnected = false; // Track connection state
 
     public BluetoothClient(Context context) {
         this.context = context;
@@ -65,17 +66,20 @@ public class BluetoothClient {
                 socket = device.createRfcommSocketToServiceRecord(SPP_UUID);
 
                 socket.connect();
+                isConnected = true; // Update connection state
 
                 if (callback != null) {
                     callback.onConnected();  // ✅ Notify success
                 }
 
+                // Đọc dữ liệu từ Bluetooth
                 InputStream inputStream = socket.getInputStream();
                 BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
                 String line;
 
                 while ((line = reader.readLine()) != null) {
                     if (callback != null) {
+                        // Gọi callback đẩy data về frontend
                         callback.onDataReceived(line);
                     }
                 }
@@ -87,6 +91,33 @@ public class BluetoothClient {
                 }
             }
         }).start();
+    }
+
+    /**
+     * Disconnects from the currently connected Bluetooth device
+     * Closes socket and resets connection state
+     */
+    public void disconnect() {
+        if (socket != null && isConnected) {
+            try {
+                socket.close();
+                Log.d("BluetoothClient", "Socket closed successfully");
+            } catch (IOException e) {
+                Log.e("BluetoothClient", "Error closing socket", e);
+            } finally {
+                socket = null;
+                isConnected = false;
+            }
+        }
+    }
+
+    /**
+     * Check if currently connected to a device
+     *
+     * @return true if connected, false otherwise
+     */
+    public boolean isConnected() {
+        return socket != null && isConnected;
     }
 
 }

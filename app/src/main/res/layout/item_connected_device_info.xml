@@ -5,6 +5,7 @@
     android:layout_height="wrap_content"
     android:gravity="center">
 
+
     <androidx.cardview.widget.CardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -42,23 +43,11 @@
 
                 <TextView
                     android:id="@+id/device_name"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="Device Name"
                     android:textSize="16sp"
-                    android:gravity="center"
-                    android:textAlignment="center"
                     android:textStyle="bold" />
-
-              <!--  <TextView
-                    android:id="@+id/device_address"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Device Address"
-                    android:textSize="14sp"
-                    android:gravity="center"
-                    android:textAlignment="center" />-->
-
 
                 <TextView
                     android:id="@+id/device_dustsensor_data"
@@ -69,24 +58,6 @@
                     android:textSize="14sp" />
 
             </LinearLayout>
-
-            <!-- Button positioned at the end of the card, vertically centered -->
-            <FrameLayout
-                android:layout_width="wrap_content"
-                android:layout_height="match_parent"
-                android:layout_gravity="center_vertical">
-
-                <Button
-                    android:id="@+id/connect_button"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:text="Connect"
-                    android:textSize="12sp"
-                    android:minWidth="48dp"
-                    android:minHeight="48dp"
-                    android:padding="12dp" />
-            </FrameLayout>
         </LinearLayout>
     </androidx.cardview.widget.CardView>
 </FrameLayout>
