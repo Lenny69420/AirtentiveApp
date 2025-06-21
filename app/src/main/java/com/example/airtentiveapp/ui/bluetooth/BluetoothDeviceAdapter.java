@@ -8,13 +8,16 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.TextView; // Assuming you use TextViews
+import android.widget.Button;
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.airtentiveapp.R;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 // Assuming your item layout is named 'item_bluetooth_device.xml'
 // and has TextViews with ids: textViewDeviceName, textViewDeviceAddress
@@ -22,17 +25,72 @@ import java.util.List;
 public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDeviceAdapter.DeviceViewHolder> {
 
     private final List<BluetoothDevice> deviceList;
-    private final OnDeviceClickListener listener;
+    private final DeviceActionListener listener;
     private final Context context; // Store context for permission checks
+    private final Map<String, Boolean> connectedDevices = new HashMap<>(); // Track connected devices by address
+    private final Map<String, String> deviceData = new HashMap<>(); // Store latest data for each device
 
-    public interface OnDeviceClickListener {
-        void onDeviceClick(BluetoothDevice device);
+    public interface DeviceActionListener {
+        void onConnectDevice(BluetoothDevice device);
+        void onDisconnectDevice(BluetoothDevice device);
     }
 
-    public BluetoothDeviceAdapter(List<BluetoothDevice> deviceList, OnDeviceClickListener listener, Context context) {
+    public BluetoothDeviceAdapter(List<BluetoothDevice> deviceList, DeviceActionListener listener, Context context) {
         this.deviceList = deviceList;
         this.listener = listener;
         this.context = context; // Initialize context
+    }
+
+    /**
+     * Update the connection state of a device
+     * @param device The device whose connection state changed
+     * @param isConnected True if connected, false if disconnected
+     */
+    public void updateConnectionState(BluetoothDevice device, boolean isConnected) {
+        if (device != null) {
+            connectedDevices.put(device.getAddress(), isConnected);
+            notifyDataSetChanged(); // Refresh the list to update button states
+        }
+    }
+
+    /**
+     * Check if a device is currently connected
+     */
+    public boolean isDeviceConnected(BluetoothDevice device) {
+        if (device != null) {
+            Boolean isConnected = connectedDevices.get(device.getAddress());
+            return isConnected != null && isConnected;
+        }
+        return false;
+    }
+
+    /**
+     * Update data for a specific device
+     * @param device The device that sent the data
+     * @param data The latest data from the device
+     */
+    public void updateDeviceData(BluetoothDevice device, String data) {
+        if (device != null) {
+            deviceData.put(device.getAddress(), data);
+            // Find and update only the specific device's view instead of refreshing the entire list
+            for (int i = 0; i < deviceList.size(); i++) {
+                if (deviceList.get(i).getAddress().equals(device.getAddress())) {
+                    // Use payload to indicate this is a data-only update
+                    notifyItemChanged(i, "DATA_UPDATE");
+                    break;
+                }
+            }
+        }
+    }
+
+    /**
+     * Get the latest data for a device
+     */
+    public String getDeviceData(BluetoothDevice device) {
+        if (device != null) {
+            return deviceData.get(device.getAddress());
+        }
+        return null;
     }
 
     @NonNull
@@ -47,7 +105,33 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
     @Override
     public void onBindViewHolder(@NonNull DeviceViewHolder holder, int position) {
         BluetoothDevice device = deviceList.get(position);
-        holder.bind(device, listener, context);
+        boolean isConnected = isDeviceConnected(device);
+        holder.bind(device, listener, context, isConnected);
+    }
+
+    @Override
+    public void onBindViewHolder(@NonNull DeviceViewHolder holder, int position, @NonNull List<Object> payloads) {
+        if (payloads.isEmpty()) {
+            // If no payload, do a full rebind
+            super.onBindViewHolder(holder, position, payloads);
+        } else {
+            // With payload, do a partial update
+            BluetoothDevice device = deviceList.get(position);
+
+            // Check if this is a data-only update
+            if (payloads.contains("DATA_UPDATE")) {
+                // Update only the sensor data TextView
+                String deviceLatestData = getDeviceData(device);
+                if (deviceLatestData != null && !deviceLatestData.isEmpty()) {
+                    // Add µg/m³ unit to the data if it doesn't already include it
+                    if (!deviceLatestData.contains("µg/m³")) {
+                        deviceLatestData = deviceLatestData + " µg/m³";
+                    }
+                    holder.dustSensorDataTextView.setText(deviceLatestData);
+                    holder.dustSensorDataTextView.setVisibility(View.VISIBLE);
+                }
+            }
+        }
     }
 
     @Override
@@ -55,19 +139,23 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
         return deviceList.size();
     }
 
-    static class DeviceViewHolder extends RecyclerView.ViewHolder {
+    class DeviceViewHolder extends RecyclerView.ViewHolder {
         // Example: These should match the IDs in your item_bluetooth_device.xml
         TextView textViewDeviceName;
         TextView textViewDeviceAddress;
+        TextView dustSensorDataTextView;
+        android.widget.Button connectButton; // Added the Connect button
 
         public DeviceViewHolder(@NonNull View itemView) {
             super(itemView);
             // Example:
             textViewDeviceName = itemView.findViewById(R.id.device_name);
-            textViewDeviceAddress = itemView.findViewById(R.id.device_address);
+            //textViewDeviceAddress = itemView.findViewById(R.id.device_address);
+            dustSensorDataTextView = itemView.findViewById(R.id.device_dustsensor_data);
+            connectButton = itemView.findViewById(R.id.connect_button); // Find the Connect button
         }
 
-        public void bind(final BluetoothDevice device, final OnDeviceClickListener listener, Context context) {
+        public void bind(final BluetoothDevice device, final DeviceActionListener listener, Context context, boolean isConnected) {
             String deviceNameStr;
             // Check for BLUETOOTH_CONNECT permission before accessing device name on Android 12+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -87,9 +175,48 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
             } else {
                 textViewDeviceName.setText(deviceNameStr);
             }
-            textViewDeviceAddress.setText(device.getAddress());
 
-            itemView.setOnClickListener(v -> listener.onDeviceClick(device));
+            // Set the device address
+           // textViewDeviceAddress.setText(device.getAddress());
+
+            // We need to get the adapter from the parent class
+            BluetoothDeviceAdapter adapter = BluetoothDeviceAdapter.this;
+
+            // Display the latest data for this device if available
+            String deviceLatestData = adapter.getDeviceData(device);
+            if (deviceLatestData != null && !deviceLatestData.isEmpty()) {
+                // Add µg/m³ unit to the data if it doesn't already include it
+                if (!deviceLatestData.contains("µg/m³")) {
+                    deviceLatestData = deviceLatestData + " µg/m³";
+                }
+                dustSensorDataTextView.setText(deviceLatestData);
+                dustSensorDataTextView.setVisibility(View.VISIBLE);
+            } else {
+                // If no data available yet, show default text for connected devices or hide for disconnected ones
+                if (isConnected) {
+                    dustSensorDataTextView.setText("Waiting for data...");
+                    dustSensorDataTextView.setVisibility(View.VISIBLE);
+                } else {
+                    dustSensorDataTextView.setText("Waiting for data...");
+                    dustSensorDataTextView.setVisibility(View.GONE);
+                }
+            }
+
+            // Update button text and listener based on connection state
+            if (isConnected) {
+
+                connectButton.setText("Disconnect");
+                connectButton.setOnClickListener(v -> listener.onDisconnectDevice(device));
+            } else {
+                connectButton.setText("Connect");
+                connectButton.setOnClickListener(v -> listener.onConnectDevice(device));
+                dustSensorDataTextView.setText("Waiting for data...");
+
+            }
+
+
+            // Remove the click listener from the entire item
+            itemView.setOnClickListener(null);
         }
     }
 }
