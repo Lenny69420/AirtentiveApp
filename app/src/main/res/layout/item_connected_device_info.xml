@@ -16,8 +16,8 @@
         app:cardElevation="4dp">
 
         <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_width="557dp"
+            android:layout_height="match_parent"
             android:orientation="horizontal"
             android:padding="16dp">
 
@@ -29,16 +29,16 @@
                 android:layout_weight="1"
                 android:contentDescription="Device image"
                 android:padding="8dp"
-                android:src="@drawable/airtentive"
-                android:scaleType="fitCenter" />
+                android:scaleType="fitCenter"
+                android:src="@drawable/airtentive" />
 
             <!-- Text section (2/3 of the card) -->
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="2"
-                android:orientation="vertical"
                 android:gravity="center_vertical"
+                android:orientation="vertical"
                 android:padding="8dp">
 
                 <TextView

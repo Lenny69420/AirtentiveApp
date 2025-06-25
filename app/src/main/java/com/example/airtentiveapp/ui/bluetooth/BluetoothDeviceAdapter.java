@@ -3,6 +3,7 @@ import android.Manifest;
 import android.bluetooth.BluetoothDevice;
 import android.content.Context;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
 import android.os.Build;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -120,15 +121,36 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
 
             // Check if this is a data-only update
             if (payloads.contains("DATA_UPDATE")) {
-                // Update only the sensor data TextView
                 String deviceLatestData = getDeviceData(device);
                 if (deviceLatestData != null && !deviceLatestData.isEmpty()) {
-                    // Add µg/m³ unit to the data if it doesn't already include it
-                    if (!deviceLatestData.contains("µg/m³")) {
-                        deviceLatestData = deviceLatestData + " µg/m³";
+                    try {
+                        // Try to extract the numeric value for determining level
+                        float sensorValue = 0;
+                        String numericPart = deviceLatestData.replaceAll("[^0-9.]", "");
+                        if (!numericPart.isEmpty()) {
+                            sensorValue = Float.parseFloat(numericPart);
+                        }
+
+                        // Add µg/m³ unit to the data if it doesn't already include it
+                        if (!deviceLatestData.contains("µg/m³")) {
+                            deviceLatestData = deviceLatestData + " µg/m³";
+                        }
+                        holder.dustSensorDataTextView.setText(deviceLatestData);
+                        holder.dustSensorDataTextView.setVisibility(View.VISIBLE);
+
+                        // Set the dust level text and color dot
+                        Object[] levelInfo = getDustLevelInfo(sensorValue);
+                        String levelText = "● " + levelInfo[0]; // Prepend dot character
+                        int colorCode = (int) levelInfo[1];
+
+                        holder.dustSensorLevelTextView.setText(levelText);
+                        holder.dustSensorLevelTextView.setTextColor(colorCode);
+                        holder.dustSensorLevelTextView.setVisibility(View.VISIBLE);
+                    } catch (NumberFormatException e) {
+                        // If we can't parse a number, just show the raw data
+                        holder.dustSensorDataTextView.setText(deviceLatestData);
+                        holder.dustSensorLevelTextView.setVisibility(View.GONE);
                     }
-                    holder.dustSensorDataTextView.setText(deviceLatestData);
-                    holder.dustSensorDataTextView.setVisibility(View.VISIBLE);
                 }
             }
         }
@@ -144,6 +166,10 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
         TextView textViewDeviceName;
         TextView textViewDeviceAddress;
         TextView dustSensorDataTextView;
+
+        TextView emptyDeviceTextView;
+
+        TextView dustSensorLevelTextView; // TextView for dust sensor level
         android.widget.Button connectButton; // Added the Connect button
 
         public DeviceViewHolder(@NonNull View itemView) {
@@ -152,6 +178,8 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
             textViewDeviceName = itemView.findViewById(R.id.device_name);
             //textViewDeviceAddress = itemView.findViewById(R.id.device_address);
             dustSensorDataTextView = itemView.findViewById(R.id.device_dustsensor_data);
+            dustSensorLevelTextView = itemView.findViewById(R.id.device_dustsensor_data_level);
+            emptyDeviceTextView = itemView.findViewById(R.id.emptyDeviceTextView); // TextView for empty state
             connectButton = itemView.findViewById(R.id.connect_button); // Find the Connect button
         }
 
@@ -176,47 +204,82 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
                 textViewDeviceName.setText(deviceNameStr);
             }
 
-            // Set the device address
-           // textViewDeviceAddress.setText(device.getAddress());
-
             // We need to get the adapter from the parent class
             BluetoothDeviceAdapter adapter = BluetoothDeviceAdapter.this;
 
             // Display the latest data for this device if available
             String deviceLatestData = adapter.getDeviceData(device);
             if (deviceLatestData != null && !deviceLatestData.isEmpty()) {
-                // Add µg/m³ unit to the data if it doesn't already include it
-                if (!deviceLatestData.contains("µg/m³")) {
-                    deviceLatestData = deviceLatestData + " µg/m³";
-                }
-                dustSensorDataTextView.setText(deviceLatestData);
-                dustSensorDataTextView.setVisibility(View.VISIBLE);
-            } else {
-                // If no data available yet, show default text for connected devices or hide for disconnected ones
-                if (isConnected) {
-                    dustSensorDataTextView.setText("Waiting for data...");
+                try {
+                    // Try to extract the numeric value for determining level
+                    float sensorValue = 0;
+                    String numericPart = deviceLatestData.replaceAll("[^0-9.]", "");
+                    if (!numericPart.isEmpty()) {
+                        sensorValue = Float.parseFloat(numericPart);
+                    }
+
+                    // Add µg/m³ unit to the data if it doesn't already include it
+                    if (!deviceLatestData.contains("µg/m³")) {
+                        deviceLatestData = deviceLatestData + " µg/m³";
+                    }
+                    dustSensorDataTextView.setText(deviceLatestData);
                     dustSensorDataTextView.setVisibility(View.VISIBLE);
-                } else {
-                    dustSensorDataTextView.setText("Waiting for data...");
-                    dustSensorDataTextView.setVisibility(View.GONE);
+
+                    // Set the dust level text and color dot
+                    Object[] levelInfo = getDustLevelInfo(sensorValue);
+                    String levelText = "● " + levelInfo[0]; // Prepend dot character
+                    int colorCode = (int) levelInfo[1];
+
+                    dustSensorLevelTextView.setText(levelText);
+                    dustSensorLevelTextView.setTextColor(colorCode);
+                    dustSensorLevelTextView.setVisibility(View.VISIBLE);
+                } catch (NumberFormatException e) {
+                    // If we can't parse a number, just show the raw data
+                    dustSensorDataTextView.setText(deviceLatestData);
+                    dustSensorLevelTextView.setVisibility(View.GONE);
                 }
+            } else {
+                // If no data available yet, show default text for all devices
+                dustSensorDataTextView.setText("Waiting for data...");
+                dustSensorDataTextView.setVisibility(View.VISIBLE); // Always visible
+                dustSensorLevelTextView.setVisibility(View.GONE);
             }
 
             // Update button text and listener based on connection state
             if (isConnected) {
-
-                connectButton.setText("Disconnect");
+                connectButton.setText("Connected");
                 connectButton.setOnClickListener(v -> listener.onDisconnectDevice(device));
             } else {
                 connectButton.setText("Connect");
                 connectButton.setOnClickListener(v -> listener.onConnectDevice(device));
                 dustSensorDataTextView.setText("Waiting for data...");
-
             }
-
 
             // Remove the click listener from the entire item
             itemView.setOnClickListener(null);
         }
+    }
+
+    /**
+     * Helper method to determine dust level text and color based on sensor value
+     * @param dustValue The dust sensor value in µg/m³
+     * @return Object array with [levelText, colorCode]
+     */
+    private Object[] getDustLevelInfo(float dustValue) {
+        String levelText;
+        int colorCode;
+
+        if (dustValue > 200) {
+            levelText = "Hazardous";
+            colorCode = Color.RED;
+        } else if (dustValue >= 100) {
+            levelText = "Unhealthy";
+            colorCode = Color.rgb(255, 165, 0); // Orange color
+        } else {
+            levelText = "Healthy";
+            colorCode = Color.GREEN;
+        }
+
+        return new Object[]{levelText, colorCode};
     }
 }

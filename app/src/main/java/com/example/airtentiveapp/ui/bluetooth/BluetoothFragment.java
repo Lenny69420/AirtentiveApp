@@ -36,6 +36,7 @@ import com.example.airtentiveapp.databinding.FragmentBluetoothBinding;
 import com.example.airtentiveapp.ui.shared.SharedBluetoothViewModel;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -48,7 +49,8 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
     private ActivityResultLauncher<String[]> requestMultiplePermissionsLauncher;
     private final List<BluetoothDevice> devices = new ArrayList<>();
     private BluetoothDeviceAdapter deviceAdapter;
-    private BluetoothClient bluetoothClient;
+    // Map to store multiple bluetooth clients, keyed by device address
+    private Map<String, BluetoothClient> bluetoothClients = new HashMap<>();
     private SharedBluetoothViewModel sharedBluetoothViewModel;
 
     private final BroadcastReceiver discoveryReceiver = new BroadcastReceiver() {
@@ -83,7 +85,7 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
                         }
 
                         if (!alreadyFound) {
-                           if (!alreadyFound && deviceName.equals("Dust Sensor")) {
+                           if (!alreadyFound && (deviceName.equals("Dust Sensor") || deviceName.equals("CANTFINDANAME") || deviceName.equals("LAPTOP-M8VIQSNJ"))) {
                             devices.add(device);
                             Log.i(TAG, "Tìm thấy thiết bị: " + deviceName + " - " + deviceAddress);
                             // Notify adapter of data change to refresh RecyclerView
@@ -118,13 +120,15 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
             } else if (BluetoothAdapter.ACTION_DISCOVERY_FINISHED.equals(action)) {
                 Log.i(TAG, "Discovery Finished.");
                 Toast.makeText(requireContext(), "Truy quét hoàn tất", Toast.LENGTH_LONG).show();
-
-               // binding.textViewStatus.setText("Truy quét hoàn tất");
                 binding.buttonScan.setEnabled(true);
 
                 if (devices.isEmpty()) {
                     Toast.makeText(requireContext(), "Không tìm thấy thiết bị nào.", Toast.LENGTH_LONG).show();
-                    //binding.textViewStatus.append("\nKhông tìm thấy thiết bị nào.");
+                    // Show empty state text view when no devices are found
+                    binding.emptyDeviceTextView.setVisibility(View.VISIBLE);
+                } else {
+                    // Hide empty state when devices are found
+                    binding.emptyDeviceTextView.setVisibility(View.GONE);
                 }
             }
         }
@@ -144,7 +148,10 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
         deviceAdapter = new BluetoothDeviceAdapter(devices, this, requireContext());
         binding.recyclerViewDevices.setAdapter(deviceAdapter);
 
-        binding.textViewReceivedData.setMovementMethod(new ScrollingMovementMethod()); // Make it scrollable
+        // Initialize empty state view - hide it initially
+        binding.emptyDeviceTextView.setVisibility(View.GONE);
+
+        //binding.textViewReceivedData.setMovementMethod(new ScrollingMovementMethod()); // Make it scrollable
 
         bluetoothManager = (BluetoothManager) requireContext().getSystemService(Context.BLUETOOTH_SERVICE);
         if (bluetoothManager != null) {
@@ -170,24 +177,30 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
     }
 
     private void onDeviceClicked(BluetoothDevice device) {
+        String deviceAddress = device.getAddress();
+
+        // Check if already connected to this device
+        if (bluetoothClients.containsKey(deviceAddress)) {
+            Toast.makeText(requireContext(), "Already connected to: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         Toast.makeText(requireContext(), "Đang kết nối với: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
-                //binding.textViewStatus.setText("Quyền truy cập Bluetooth bị thiếu");
                 Toast.makeText(requireContext(), "BLUETOOTH_SCAN permission needed to cancel discovery.", Toast.LENGTH_LONG).show();
-                // Optionally, re-trigger permission request
                 return;
             }
         }
 
-        // Cancel before connecting
+        // Cancel discovery before connecting
         if (bluetoothAdapter.isDiscovering()) {
             bluetoothAdapter.cancelDiscovery();
         }
 
-
-        // Connect to device using BluetoothClient
-        bluetoothClient = new BluetoothClient(requireContext());
+        // Create new BluetoothClient for this device
+        BluetoothClient bluetoothClient = new BluetoothClient(requireContext());
         bluetoothClient.setCallback(new BluetoothDataCallback() {
             @Override
             public void onDataReceived(String data) {
@@ -216,11 +229,13 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
                 if (isAdded() && getActivity() != null) {
                     getActivity().runOnUiThread(() -> {
                         // Show toast message instead of updating text binding
-                        Toast.makeText(getContext(), "Kết nối thành cônng", Toast.LENGTH_SHORT).show();
-                       /* // Still update status text
-                        if (binding != null) {
-                            binding.textViewStatus.setText("Kết nối thành cônng");
-                        }*/
+                        Toast.makeText(getContext(), "Kết nối thành công với " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
+
+                        // Store the client in the map once connection is successful
+                        bluetoothClients.put(deviceAddress, bluetoothClient);
+
+                        // Update the adapter to show the device as connected
+                        deviceAdapter.updateConnectionState(device, true);
                     });
                 }
             }
@@ -231,10 +246,6 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
                     getActivity().runOnUiThread(() -> {
                         // Show toast message instead of updating text binding
                         Toast.makeText(getContext(), "Kết nối thất bại, vui lòng thử lại.", Toast.LENGTH_SHORT).show();
-                       /* // Still update status text
-                        if (binding != null) {
-                            binding.textViewStatus.setText("Kết nối thất bại, vui lòng thử lại.");
-                        }*/
                     });
                 }
             }
@@ -254,21 +265,30 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
         Toast.makeText(requireContext(), "Ngắt kết nối: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
 
         // If we have an active client, disconnect it
-        if (bluetoothClient != null) {
-            bluetoothClient.disconnect();
-            bluetoothClient = null;
+        BluetoothClient client = bluetoothClients.get(device.getAddress());
+        if (client != null) {
+            client.disconnect();
+            bluetoothClients.remove(device.getAddress());
 
             // Update the adapter to show the device as disconnected
             deviceAdapter.updateConnectionState(device, false);
 
             // Clear the received data text
-            if (binding != null) {
+           /* if (binding != null) {
                 binding.textViewReceivedData.setText("");
-            }
+            }*/
         }
     }
 
     private void connectToDevice(BluetoothDevice device) {
+        String deviceAddress = device.getAddress();
+
+        // Check if already connected to this device
+        if (bluetoothClients.containsKey(deviceAddress)) {
+            Toast.makeText(requireContext(), "Already connected to: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
+            return;
+        }
+
         Toast.makeText(requireContext(), "Đang kết nối với: " + getDeviceNameSafe(device), Toast.LENGTH_SHORT).show();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -284,7 +304,7 @@ public class BluetoothFragment extends Fragment implements BluetoothDeviceAdapte
         }
 
         // Connect to device using BluetoothClient
-        bluetoothClient = new BluetoothClient(requireContext());
+        BluetoothClient bluetoothClient = new BluetoothClient(requireContext());
         bluetoothClient.setCallback(new BluetoothDataCallback() {
             @Override
             public void onDataReceived(String data) {
