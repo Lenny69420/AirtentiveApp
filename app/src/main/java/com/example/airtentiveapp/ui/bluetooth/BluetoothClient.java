@@ -67,7 +67,7 @@ public class BluetoothClient {
                 socket.connect();
 
                 if (callback != null) {
-                    callback.onConnected();  // ✅ Notify success
+                    callback.onConnected(device.getAddress());  // ✅ Notify success with device address
                 }
 
                 // Đọc dữ liệu từ Bluetooth
@@ -77,15 +77,15 @@ public class BluetoothClient {
 
                 while ((line = reader.readLine()) != null) {
                     if (callback != null) {
-                        // Gọi callback đẩy data về frontend
-                        callback.onDataReceived(line);
+                        // Gọi callback đẩy data về frontend với device address
+                        callback.onDataReceived(device.getAddress(), line);
                     }
                 }
 
             } catch (IOException e) {
                 Log.e("BluetoothClient", "Connection error", e);
                 if (callback != null) {
-                    callback.onConnectionFailed(e);  // ✅ Notify failure
+                    callback.onConnectionFailed(device.getAddress(), e);  // ✅ Notify failure with device address
                 }
             }
         }).start();

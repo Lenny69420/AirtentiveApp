@@ -7,14 +7,16 @@ import android.os.Build;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.TextView; // Assuming you use TextViews
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.core.content.ContextCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.airtentiveapp.R;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 // Assuming your item layout is named 'item_bluetooth_device.xml'
 // and has TextViews with ids: textViewDeviceName, textViewDeviceAddress
@@ -23,7 +25,9 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
 
     private final List<BluetoothDevice> deviceList;
     private final OnDeviceClickListener listener;
-    private final Context context; // Store context for permission checks
+    private final Context context;
+    // Store data for each device by MAC address
+    private final Map<String, String> deviceDataMap = new HashMap<>();
 
     public interface OnDeviceClickListener {
         void onDeviceClick(BluetoothDevice device);
@@ -32,7 +36,19 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
     public BluetoothDeviceAdapter(List<BluetoothDevice> deviceList, OnDeviceClickListener listener, Context context) {
         this.deviceList = deviceList;
         this.listener = listener;
-        this.context = context; // Initialize context
+        this.context = context;
+    }
+
+    // Method to update data for a specific device
+    public void updateDeviceData(String deviceAddress, String data) {
+        deviceDataMap.put(deviceAddress, data);
+        // Find the position of the device and notify adapter
+        for (int i = 0; i < deviceList.size(); i++) {
+            if (deviceList.get(i).getAddress().equals(deviceAddress)) {
+                notifyItemChanged(i);
+                break;
+            }
+        }
     }
 
     @NonNull
@@ -47,7 +63,8 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
     @Override
     public void onBindViewHolder(@NonNull DeviceViewHolder holder, int position) {
         BluetoothDevice device = deviceList.get(position);
-        holder.bind(device, listener, context);
+        String currentData = deviceDataMap.get(device.getAddress());
+        holder.bind(device, listener, context, currentData);
     }
 
     @Override
@@ -58,16 +75,16 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
     static class DeviceViewHolder extends RecyclerView.ViewHolder {
         // Example: These should match the IDs in your item_bluetooth_device.xml
         TextView textViewDeviceName;
-        TextView textViewDeviceAddress;
+        TextView textViewDeviceDustSensorData;
 
         public DeviceViewHolder(@NonNull View itemView) {
             super(itemView);
             // Example:
             textViewDeviceName = itemView.findViewById(R.id.device_name);
-            textViewDeviceAddress = itemView.findViewById(R.id.device_address);
+            textViewDeviceDustSensorData = itemView.findViewById(R.id.device_dustsensor_data);
         }
 
-        public void bind(final BluetoothDevice device, final OnDeviceClickListener listener, Context context) {
+        public void bind(final BluetoothDevice device, final OnDeviceClickListener listener, Context context, String currentData) {
             String deviceNameStr;
             // Check for BLUETOOTH_CONNECT permission before accessing device name on Android 12+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -87,7 +104,13 @@ public class BluetoothDeviceAdapter extends RecyclerView.Adapter<BluetoothDevice
             } else {
                 textViewDeviceName.setText(deviceNameStr);
             }
-            textViewDeviceAddress.setText(device.getAddress());
+
+            // Display current data or default message
+            if (currentData != null && !currentData.isEmpty()) {
+                textViewDeviceDustSensorData.setText(currentData);
+            } else {
+                textViewDeviceDustSensorData.setText("No data received");
+            }
 
             itemView.setOnClickListener(v -> listener.onDeviceClick(device));
         }

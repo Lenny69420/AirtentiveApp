@@ -83,7 +83,7 @@ public class BluetoothFragment extends Fragment {
                         }
 
                         if (!alreadyFound) {
-                           if (!alreadyFound && deviceName.equals("DustSensor")) {
+                           if (!alreadyFound && (deviceName.equals("Dust Sensor") || deviceName.equals("CANTFINDANAME"))) {
                             devices.add(device);
                             Log.i(TAG, "Tìm thấy thiết bị: " + deviceName + " - " + deviceAddress);
                             // Notify adapter of data change to refresh RecyclerView
@@ -186,24 +186,27 @@ public class BluetoothFragment extends Fragment {
         bluetoothClient = new BluetoothClient(requireContext());
         bluetoothClient.setCallback(new BluetoothDataCallback() {
             @Override
-            public void onDataReceived(String data) {
+            public void onDataReceived(String deviceAddress, String data) {
                 requireActivity().runOnUiThread(() -> {
-                    // Update the shared ViewModel instead of local TextView
+                    // Update the adapter with new data for this specific device
+                    deviceAdapter.updateDeviceData(deviceAddress, data);
+
+                    // Update the shared ViewModel as well
                     sharedBluetoothViewModel.setBluetoothData(data);
 
                     // Optionally keep showing data in Bluetooth fragment for debugging
-                    binding.textViewReceivedData.append("\n" + data);
+                    binding.textViewReceivedData.append("\n[" + deviceAddress + "]: " + data);
                 });
             }
 
             @Override
-            public void onConnected() {
-                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Kết nối thành cônng"));
+            public void onConnected(String deviceAddress) {
+                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Kết nối thành công với " + deviceAddress));
             }
 
             @Override
-            public void onConnectionFailed(Exception e) {
-                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Kết nối thất bại, vui lòng thử lại."));
+            public void onConnectionFailed(String deviceAddress, Exception e) {
+                requireActivity().runOnUiThread(() -> binding.textViewStatus.setText("Kết nối thất bại với " + deviceAddress + ", vui lòng thử lại."));
             }
         });
         bluetoothClient.connectToDevice(device);
